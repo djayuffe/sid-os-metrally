@@ -11,6 +11,27 @@ SID OS is a client-only Vite application. There is no server component and no AP
 5. Tracker editing operates on immutable `TrackerProject` values in `services/editorService.ts`.
 6. Export services serialize the current trace or tracker project to JSON, MIDI, and SWM files.
 
+## Feature boundaries
+
+### Transport and audio
+
+`App.tsx` owns the single `SidPlayer` instance. AudioContext creation is deferred until `SYSTEM_READY`; later state changes are sent to the worklet through control messages (`DATA`, `PLAY`, `SEEK`, `SPEED`, `MODEL`, `MASK`, `MASTER`, `MIXER`, and `LIVE`). The worklet advances SID cycles at the selected PAL/NTSC clock, applies register writes in stable order, and posts telemetry snapshots for the UI.
+
+### Trace and project data
+
+`parseTraceFile` accepts pipe-delimited text and JSON event records, rejects invalid cycles/registers, preserves an optional clock header, and reconstructs frame snapshots. `validateProject` fills safe defaults for missing tracker metadata and validates ADSR nibbles. `renderProjectToTrace` converts tracker rows into SID register frames and cycle events without mutating the source project.
+
+### Editing and windows
+
+The tracker, sequence editor, pattern tools, instrument editor, mixer and visualizers are independent windows managed by `VWindow`. Editor operations in `editorService.ts` return new project values, keeping React state predictable for callers.
+
+### Export contracts
+
+- JSON export preserves the validated trace/project object.
+- MIDI export emits a type-1 Standard MIDI File with tempo, voice tracks, pitch-bend and controller data; edited projects and raw traces use separate paths.
+- WAV export renders an offline `AudioBuffer` and writes a little-endian RIFF/WAVE container.
+- SWM export packs patterns, sequences, instruments, chord data and tempo tables into the `SWM1` layout.
+
 ## Audio lifecycle
 
 Audio is created only after the user activates the `SYSTEM_READY` button. This satisfies browser autoplay policies. The `SidPlayer` worklet is disconnected and its context is closed when the React app unmounts.
@@ -29,3 +50,11 @@ pnpm run build
 ```
 
 Open the Vite URL, not `index.html` directly. Direct `file://` loading cannot resolve Vite's module graph or dependency packages.
+
+## Browser capability fallbacks
+
+Web Audio is required for playback and WAV export. Three.js panels check for WebGL before creating a renderer and replace an unavailable canvas with a status message. The tracker, audit, mixer, file import and data export remain usable when WebGL is unavailable.
+
+## Privacy and deployment
+
+The app is static and client-only. Vite serves the development module graph; production hosting can be any static HTTP server. Imported traces, generated audio and exported files stay in the browser unless the user explicitly saves them. No telemetry endpoint, API key or remote persistence layer is used.

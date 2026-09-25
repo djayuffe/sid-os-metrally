@@ -1,14 +1,24 @@
 {
   "name": "SID OS — Metrally",
-  "description": "A browser-based Commodore 64 SID workstation for trace playback, tracker editing, visualization, synthesis, and export.",
+  "description": "A privacy-first, browser-based Commodore 64 SID workstation for cycle-accurate trace playback, tracker editing, Web Audio synthesis, mastering, hardware diagnostics, MIDI/WAV/SWM export, and local project workflows.",
   "version": "0.95.0",
-  "tags": ["commodore-64", "sid", "tracker", "web-audio", "demoscene", "music-tools"],
+  "tags": ["commodore-64", "c64", "sid", "mos-6581", "mos-8580", "sid-chip", "sid-trace", "tracker", "music-tools", "web-audio", "audio-worklet", "midi", "wav", "sid-wizard", "swm", "demoscene", "typescript", "vite", "client-side", "privacy-first"],
   "features": [
     "SID trace playback",
     "tracker and instrument editing",
     "Three.js hardware visualizers",
     "MIDI, SWM, and JSON export",
-    "mastering and mixer controls"
+    "WAV rendering and download",
+    "mastering and mixer controls",
+    "PAL/NTSC and manual frame-rate timing",
+    "WebGL fallback for constrained browsers",
+    "local virtual SD trace workspace"
   ],
+  "documentation": {
+    "readme": "README.md",
+    "architecture": "docs/ARCHITECTURE.md",
+    "screenshots": "docs/SCREENSHOTS.md",
+    "changelog": "CHANGELOG.md"
+  },
   "requestFramePermissions": []
 }

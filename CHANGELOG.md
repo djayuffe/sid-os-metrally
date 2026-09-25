@@ -9,3 +9,4 @@
 - Hardened trace/project validation and stopped mutating imported event arrays.
 - Fixed memoized visualizer syntax errors and Three.js ESM imports.
 - Added GPL-3.0 licensing, architecture documentation, metadata, keywords, and repository links.
+- Expanded README, architecture notes, feature tags, input/transport documentation, troubleshooting, and screenshot gallery assets.
