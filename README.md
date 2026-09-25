@@ -51,6 +51,14 @@ JSON input may be an event array or an object containing `events`/`writeLog`, wi
 - `components/` — visualizers, editors, dialogs, and virtual filesystem UI.
 - `sid_gpu_engine.ts`, `sid_visual_sim.ts` — Three.js visual simulation support.
 
+More detail is available in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and release changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+
+## Troubleshooting
+
+- If the page is blank when opened as a file, start Vite and open its local URL; direct `file://` loading is unsupported.
+- If audio does not start, click `SYSTEM_READY` and allow audio for the site.
+- If a trace appears silent, verify that its cycle values are finite and that register values are hexadecimal bytes.
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
