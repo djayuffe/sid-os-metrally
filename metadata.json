@@ -1,0 +1,5 @@
+{
+  "name": "SID OS — Metrally",
+  "description": "A browser-based Commodore 64 SID workstation for trace playback, tracker editing, visualization, synthesis, and export.",
+  "requestFramePermissions": []
+}
