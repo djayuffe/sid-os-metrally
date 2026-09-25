@@ -24,6 +24,12 @@ pnpm run dev
 
 Open the URL printed by Vite. The first screen requires a user click to enable Web Audio. No API key is required; the application runs entirely in the browser.
 
+Do not open `index.html` directly with `file://`: TypeScript modules are served
+by Vite and browsers intentionally block them from file origins. The local
+server binds only to `127.0.0.1`, so it is not exposed to the local network.
+
+Keep the Vite process running while using the page. If the browser shows `@vite/client` or dynamic-import 404 errors, restart the server from the repository root with `pnpm run dev` and reload `http://localhost:3000/`.
+
 Production build and preview:
 
 ```sh
