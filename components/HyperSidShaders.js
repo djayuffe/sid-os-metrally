@@ -8,6 +8,10 @@
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
+import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+
 // ============================================================================
 // BLOOM + CHROMATIC ABERRATION POST-PROCESSING
 // ============================================================================
@@ -579,12 +583,10 @@ export const createShaderMaterial = (vertexShader, fragmentShader, uniforms) => 
 };
 
 export const createPostProcessComposer = (renderer, scene, camera) => {
-    // Note: In real implementation, use THREE.EffectComposer
-    // This is a placeholder structure
-    return {
-        renderer,
-        scene,
-        camera,
-        passes: []
-    };
+    if (!renderer || !scene || !camera) {
+        throw new Error('A renderer, scene, and camera are required for post-processing');
+    }
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    return composer;
 };

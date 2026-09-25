@@ -292,19 +292,29 @@ const App: React.FC = () => {
 
       <ProtrackerMenu
         onLoad={() => focusWindow('sd')}
-        onExportProject={() => exportProjectToJson(trackerProject)} onExportMidi={() => setShowMidiModal(true)} onExportSwm={() => trackerProject && generateSwmFile(trackerProject)}
+        onExportProject={() => exportProjectToJson(trackerProject)}
+        onExportMidi={() => setShowMidiModal(true)}
+        onExportSwm={() => {
+            if (!trackerProject) return;
+            try {
+                downloadBytes(generateSwmFile(trackerProject), 'project.swm', 'application/octet-stream');
+            } catch (error) {
+                console.error('SWM export failed', error);
+                window.alert(`SWM export failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+            }
+        }}
         onHelp={() => setShowHelpModal(true)} onSettings={() => setShowSettingsModal(true)} onOpenMixer={() => focusWindow('mixer')} onPatternTools={() => setShowPatternTools(true)}
         onShutdown={() => { playerRef.current?.pause(); playerRef.current?.destroy(); playerRef.current = null; setIsPlayingState(false); setIsAudioEnabled(false); }}
-        viewMode="PRO_STATION" setViewMode={() => {}} vizMode={vizMode} setVizMode={setVizMode as any} crtEnabled={crtEnabled} setCrtEnabled={setCrtEnabled}
-        clockFreq={clockFreq} setClockFreq={setClockFreq} lfoConfig={{enabled: false, sync: false, rate: 1, depth: 0, waveform: 'sawtooth', target: 'none'}} setLfoConfig={()=>{}}
+        vizMode={vizMode} setVizMode={setVizMode as any} crtEnabled={crtEnabled} setCrtEnabled={setCrtEnabled}
+        clockFreq={clockFreq} setClockFreq={setClockFreq}
         traceLoaded={!!traceData} isPlaying={isPlayingState} onTogglePlay={async () => {
             if (playerRef.current && isAudioEnabled) {
                 isPlayingState ? playerRef.current.pause() : await playerRef.current.play();
             }
         }}
         onStop={() => { if(isAudioEnabled) { playerRef.current?.pause(); playerRef.current?.seek(0); } }}
-        playbackSpeed={playbackSpeed} setPlaybackSpeed={setPlaybackSpeed} volume={volume} setVolume={setVolume} editorStep={1} setEditorStep={()=>{}}
-        isFullscreen={false} onToggleFullscreen={() => {}} hqEnabled={true} setHqEnabled={()=>{}} onExportJson={() => exportTraceToJson(traceData)}
+        playbackSpeed={playbackSpeed} setPlaybackSpeed={setPlaybackSpeed} volume={volume} setVolume={setVolume}
+        onExportJson={() => exportTraceToJson(traceData)}
         onExportWav={exportWav}
       />
 

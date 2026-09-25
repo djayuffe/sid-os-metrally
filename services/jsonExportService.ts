@@ -9,7 +9,7 @@ export const exportTraceToJson = (traceData: ParsedTrace | null) => {
     a.href = u;
     a.download = 'sid_trace.json';
     a.click();
-    URL.revokeObjectURL(u);
+    window.setTimeout(() => URL.revokeObjectURL(u), 1000);
 };
 
 export const exportProjectToJson = (trackerProject: TrackerProject | undefined) => {
@@ -20,5 +20,5 @@ export const exportProjectToJson = (trackerProject: TrackerProject | undefined) 
     a.href = u;
     a.download = 'project.sng.json';
     a.click();
-    URL.revokeObjectURL(u);
+    window.setTimeout(() => URL.revokeObjectURL(u), 1000);
 };

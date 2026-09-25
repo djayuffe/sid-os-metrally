@@ -1,11 +1,6 @@
 
 import React, { useState } from 'react';
-import {
-  Upload, Binary, Sliders, Monitor,
-  Grid, Piano, Clock, HelpCircle,
-  Play, Pause, Square, Disc, Settings, Volume2, Eye, Layout, Maximize, AppWindow, Power
-} from 'lucide-react';
-import { LfoConfig } from '../types';
+import { Upload, Binary, Sliders, Monitor, HelpCircle, Play, Pause, Square, Disc, Settings, Volume2, Eye, Power } from 'lucide-react';
 import { CLOCK_PAL, CLOCK_NTSC } from '../services/sidService';
 
 interface ProtrackerMenuProps {
@@ -20,16 +15,12 @@ interface ProtrackerMenuProps {
   onPatternTools: () => void;
   onShutdown: () => void;
   onOpenMixer: () => void;
-  viewMode: string;
-  setViewMode: (m: 'TRACKER' | 'INSTRUMENTS' | 'MEM') => void;
   vizMode: string;
   setVizMode: (m: 'STANDARD' | 'VECTOR' | 'FLUX') => void;
   crtEnabled: boolean;
   setCrtEnabled: (v: boolean) => void;
   clockFreq: number;
   setClockFreq: (f: number) => void;
-  lfoConfig: LfoConfig;
-  setLfoConfig: (c: LfoConfig) => void;
   traceLoaded: boolean;
   isPlaying: boolean;
   onTogglePlay: () => void;
@@ -38,12 +29,6 @@ interface ProtrackerMenuProps {
   setPlaybackSpeed: (s: number) => void;
   volume: number;
   setVolume: (v: number) => void;
-  hqEnabled?: boolean;
-  setHqEnabled?: (v: boolean) => void;
-  isFullscreen: boolean;
-  onToggleFullscreen: () => void;
-  editorStep: number;
-  setEditorStep: (s: number) => void;
 }
 
 const PtButton: React.FC<{ label: string, active?: boolean, onClick: () => void, icon?: React.ReactNode, disabled?: boolean, sub?: string }> = ({ label, active, onClick, icon, disabled, sub }) => (
@@ -94,7 +79,9 @@ const ProtrackerMenu: React.FC<ProtrackerMenuProps> = (props) => {
             <div className="p-1 flex flex-wrap gap-1.5 items-center">
                 <PtGroup label="DISK">
                     <PtButton label="LOAD" icon={<Upload className="w-2.5 h-2.5"/>} onClick={props.onLoad} />
-                    <PtButton label="SAVE" icon={<Binary className="w-2.5 h-2.5"/>} onClick={props.onExportProject} disabled={!props.traceLoaded} />
+                    <PtButton label="SAVE" icon={<Binary className="w-2.5 h-2.5"/>} onClick={props.onExportProject} />
+                    <PtButton label="MIDI" onClick={props.onExportMidi} />
+                    <PtButton label="SWM" onClick={props.onExportSwm} />
                 </PtGroup>
 
                 <PtGroup label="KERN">

@@ -29,7 +29,7 @@ const parseCmd = (cmdStr: string): { fx: number, param: number } | null => {
     const type = cmdStr.charAt(0);
     const valStr = cmdStr.length >= 3 ? cmdStr.substring(1) : "00";
     const val = parseInt(valStr, 16);
-    const safeVal = isNaN(val) ? 0 : val;
+    const safeVal = Number.isFinite(val) ? Math.max(0, Math.min(0xFF, val)) : 0;
 
     // Extended SWM BigFX mapping
     if (type === '0') return { fx: 0x07, param: safeVal }; // Arpeggio -> SetChord
@@ -56,11 +56,14 @@ const parseCmd = (cmdStr: string): { fx: number, param: number } | null => {
 };
 
 export const generateSwmFile = (project: TrackerProject): Uint8Array => {
+    const subtune = project.subtunes?.[0] ?? { id: 0, tempo: 6, orderList: [], loopPosition: undefined, funkTempo: undefined };
+    const orderList = Array.isArray(subtune.orderList) ? subtune.orderList : [];
+    const instruments = Array.isArray(project.instruments) ? project.instruments : [];
     const swmPatterns: number[][] = [];
     const patternCache = new Map<string, number>();
     const trackSequences: number[][] = [[], [], []];
 
-    for (let pIdx of project.subtunes[0].orderList) {
+    for (const pIdx of orderList) {
         const pattern = project.patterns.find(p => p.id === pIdx);
         if (!pattern) continue;
 
@@ -132,14 +135,17 @@ export const generateSwmFile = (project: TrackerProject): Uint8Array => {
     const writeStr = (s: string, len: number) => { for(let i=0; i<len; i++) bytes.push(i < s.length ? s.charCodeAt(i) : 0); };
 
     writeStr("SWM1", 4);
-    const fs = project.frameSpeed || 1;
+    const frameSpeed = Number.isFinite(project.frameSpeed) ? Math.floor(project.frameSpeed) : 1;
+    const fs = Math.max(1, Math.min(0xFF, frameSpeed));
+    if (swmPatterns.length > 0xFF) {
+        throw new Error(`SWM export supports at most 255 patterns (got ${swmPatterns.length})`);
+    }
 
-    bytes.push(fs, 4, 4, 0, 0xFE, 0xFE, 0xFE, 0x20, 3, swmPatterns.length, project.instruments.length, chordBytes.length, tempoBytes.length, 0, 0, 0, 0);
+    bytes.push(fs, 4, 4, 0, 0xFE, 0xFE, 0xFE, 0x20, 3, swmPatterns.length, instruments.length, chordBytes.length, tempoBytes.length, 0, 0, 0, 0);
     // Pad header to standard 64-byte boundary
     while(bytes.length < 0x40) bytes.push(0);
-    writeStr(project.meta.author.padEnd(40, ' ').substring(0, 40), 40);
+    writeStr((project.meta?.author ?? 'SID OS').padEnd(40, ' ').substring(0, 40), 40);
 
-    const subtune = project.subtunes[0];
     const loopPos = subtune.loopPosition !== undefined ? subtune.loopPosition : -1;
 
     for (let ch = 0; ch < 3; ch++) {
@@ -154,10 +160,13 @@ export const generateSwmFile = (project: TrackerProject): Uint8Array => {
     }
 
     for (const patData of swmPatterns) {
+        if (patData.length > 0xFE) {
+            throw new Error(`SWM pattern payload exceeds 254 bytes (got ${patData.length})`);
+        }
         bytes.push((1 + patData.length) & 0xFF, 64, ...patData);
     }
 
-    for (const inst of project.instruments) {
+    for (const inst of instruments) {
         bytes.push(inst.flags||0, inst.hrAd||0x0F, inst.hrSr||0xF0, (inst.attack<<4)|inst.decay, (inst.sustain<<4)|inst.release, inst.vibParam||0, inst.vibDelay||0, inst.arpSpeed||0, 1, 0, 0x11, 0x12, 0, 0, 0, (inst.waveform&0xF0)|1);
         bytes.push(inst.gatTimer || 0, 0xFF, 0xFF);
         writeStr(inst.name.padEnd(8, ' ').substring(0,8), 8);
