@@ -8,6 +8,7 @@ import { Activity, Zap, Thermometer, ShieldCheck, Sliders, Maximize2, Radio, Inf
 import { SidPlayer } from '../services/sidService';
 import { SidGpuEngine } from '../sid_gpu_engine';
 import { buildPhotonicSid } from '../sid_visual_sim';
+import { showWebGLFallback, supportsWebGL } from '../services/webglFallback';
 
 // =============================================================================
 // CONSTANTS
@@ -214,6 +215,9 @@ const PhysicalSidVisualizer: React.FC<PhysicalSidProps> = memo(({
   // Main Three.js scene setup
   useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return;
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!supportsWebGL(canvas)) return showWebGLFallback(container, canvas, 'PHYSICAL SID VISUALIZER');
 
     let mounted = true;
 
@@ -232,12 +236,17 @@ const PhysicalSidVisualizer: React.FC<PhysicalSidProps> = memo(({
     cameraRef.current = camera;
 
     // Renderer setup
-    const renderer = new THREE.WebGLRenderer({
-      canvas: canvasRef.current,
-      antialias: true,
-      alpha: true,
-      powerPreference: 'high-performance'
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: true,
+        powerPreference: 'high-performance'
+      });
+    } catch {
+      return showWebGLFallback(container, canvas, 'PHYSICAL SID VISUALIZER');
+    }
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = RENDERER_CONFIG.TONE_MAPPING_EXPOSURE;
     renderer.outputColorSpace = THREE.SRGBColorSpace;

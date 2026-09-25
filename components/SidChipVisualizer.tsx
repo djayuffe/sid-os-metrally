@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 // Fix: Import Cpu icon from lucide-react
 import { Cpu } from 'lucide-react';
 import { SidPlayer } from '../services/sidService';
+import { showWebGLFallback, supportsWebGL } from '../services/webglFallback';
 
 const REG_GROUPS = [
     { start: 0, end: 6, row: 1.5, col: -1, color: 0x00ffff, label: "OSC_CORE_V1", desc: "Freq/PW/Ctrl/AD/SR" },
@@ -103,18 +104,24 @@ const SidChipVisualizer: React.FC<SidChipVisualizerProps> = memo(({ player, mode
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+    if (!supportsWebGL(canvas)) return showWebGLFallback(container, canvas, 'SID CHIP VISUALIZER');
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.1, 1000);
     camera.position.set(6, 4, 10);
     camera.lookAt(0, 0, 0);
 
-    const renderer = new THREE.WebGLRenderer({
-        canvas,
-        antialias: true,
-        powerPreference: "high-performance",
-        alpha: true
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+          canvas,
+          antialias: true,
+          powerPreference: "high-performance",
+          alpha: true
+      });
+    } catch {
+      return showWebGLFallback(container, canvas, 'SID CHIP VISUALIZER');
+    }
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;

@@ -3,6 +3,7 @@ import React, { useEffect, useRef, memo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SidPlayer } from '../services/sidService';
+import { showWebGLFallback, supportsWebGL } from '../services/webglFallback';
 
 /* =========================
    GPU DATA CHANNELS
@@ -180,6 +181,7 @@ const NmosLogicVisualizer: React.FC<NmosProps> = memo(({ player, isPlaying }) =>
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+    if (!supportsWebGL(canvas)) return showWebGLFallback(container, canvas, 'NMOS LOGIC VISUALIZER');
 
     const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
     const getDpr = () => clamp(window.devicePixelRatio || 1, 1, 2);
@@ -188,12 +190,17 @@ const NmosLogicVisualizer: React.FC<NmosProps> = memo(({ player, isPlaying }) =>
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
     camera.position.set(0, 0, 15);
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: true,
-      powerPreference: 'high-performance'
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: true,
+        powerPreference: 'high-performance'
+      });
+    } catch {
+      return showWebGLFallback(container, canvas, 'NMOS LOGIC VISUALIZER');
+    }
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
