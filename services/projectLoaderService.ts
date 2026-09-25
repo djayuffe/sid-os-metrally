@@ -30,7 +30,7 @@ export const validateProject = (json: unknown): TrackerProject => {
         subtunes: Array.isArray(input.subtunes) ? input.subtunes as TrackerProject['subtunes'] : [],
         chordTable: Array.isArray(input.chordTable) ? input.chordTable as TrackerProject['chordTable'] : [],
         tempoTable: Array.isArray(input.tempoTable) ? input.tempoTable as TrackerProject['tempoTable'] : [],
-        frameSpeed: typeof input.frameSpeed === 'number' && Number.isFinite(input.frameSpeed) && input.frameSpeed > 0 ? input.frameSpeed : 6
+        frameSpeed: typeof input.frameSpeed === 'number' && Number.isFinite(input.frameSpeed) && input.frameSpeed > 0 ? Math.min(64, Math.max(1, Math.floor(input.frameSpeed))) : 6
     };
     if (project.instruments.length === 0) {
         project.instruments.push({
@@ -48,8 +48,8 @@ export const renderProjectToTrace = (project: TrackerProject, clock: number): Pa
     // Fixed: Initialized frames as Uint8Array[] to match ParsedTrace definition
     const frames: Uint8Array[] = [];
     const events: any[] = [];
-    const speed = project.frameSpeed || 6;
-    const subtune = project.subtunes[0];
+    const speed = Number.isFinite(project.frameSpeed) && (project.frameSpeed || 0) > 0 ? Math.min(64, Math.max(1, Math.floor(project.frameSpeed!))) : 6;
+    const subtune = project.subtunes[0] || { id: 0, tempo: 6, orderList: [] };
 
     const channels = [0, 1, 2].map(() => ({
         activeInstId: 0, note: -1, freq: 0, targetFreq: 0, glideSpeed: 0, gate: false, hrTimer: 0,
@@ -110,7 +110,7 @@ export const renderProjectToTrace = (project: TrackerProject, clock: number): Pa
     let cyclesAccumulator = 0;
     const cyclesPerFrame = clock / 50;
 
-    for (const patId of subtune.orderList) {
+    for (const patId of (Array.isArray(subtune.orderList) ? subtune.orderList : [])) {
         const pattern = project.patterns.find(p => p.id === patId);
         for (let r = 0; r < 64; r++) {
             const rowData = pattern ? pattern.rows[r] : null;

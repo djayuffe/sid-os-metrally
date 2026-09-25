@@ -68,7 +68,10 @@ const writeString = (str: string, bytes: number[]) => {
 };
 
 export const generateMidiFile = (trace: ParsedTrace, options: MidiExportOptions): Uint8Array => {
-  const { bpm, ppq, duration, channels } = options;
+  const bpm = Number.isFinite(options?.bpm) ? Math.min(999, Math.max(1, options.bpm)) : 120;
+  const ppq = Number.isInteger(options?.ppq) ? Math.min(32767, Math.max(24, options.ppq)) : 480;
+  const duration = options?.duration || 'smart';
+  const channels: [boolean, boolean, boolean] = [Boolean(options?.channels?.[0]), Boolean(options?.channels?.[1]), Boolean(options?.channels?.[2])];
 
   const isNtsc = (trace.header.clock || CLOCK_PAL) >= 1000000;
   const clockFreq = isNtsc ? CLOCK_NTSC : CLOCK_PAL;
@@ -125,8 +128,8 @@ export const generateMidiFile = (trace: ParsedTrace, options: MidiExportOptions)
       const frame = trace.frames[f];
       if (!frame || frame.length < 25) continue;
 
-      frameTickAccumulator += ticksPerFrame;
       let eventTick = Math.round(frameTickAccumulator);
+      frameTickAccumulator += ticksPerFrame;
 
       if (quantizeTicks > 0) eventTick = Math.round(eventTick / quantizeTicks) * quantizeTicks;
       if (eventTick < currentTick) eventTick = currentTick;
@@ -241,12 +244,22 @@ export const generateMidiFile = (trace: ParsedTrace, options: MidiExportOptions)
     tracks.push(trackBytes);
   }
 
+  if (tracks.length === 0) {
+    const tempoTrack: number[] = [];
+    writeVLQ(0, tempoTrack); tempoTrack.push(0xFF, 0x51, 0x03);
+    const usPerQuarter = Math.round(60000000 / bpm);
+    tempoTrack.push((usPerQuarter >> 16) & 0xFF, (usPerQuarter >> 8) & 0xFF, usPerQuarter & 0xFF);
+    writeVLQ(0, tempoTrack); tempoTrack.push(0xFF, 0x2F, 0x00);
+    tracks.push(tempoTrack);
+  }
   return buildMidiFile(tracks, ppq);
 };
 
 export const generateMidiFromProject = (project: TrackerProject, options: MidiExportOptions): Uint8Array => {
-    const { bpm, ppq, channels } = options;
-    const framesPerRow = project.frameSpeed || 1;
+    const bpm = Number.isFinite(options?.bpm) ? Math.min(999, Math.max(1, options.bpm)) : 120;
+    const ppq = Number.isInteger(options?.ppq) ? Math.min(32767, Math.max(24, options.ppq)) : 480;
+    const channels: [boolean, boolean, boolean] = [Boolean(options?.channels?.[0]), Boolean(options?.channels?.[1]), Boolean(options?.channels?.[2])];
+    const framesPerRow = Number.isFinite(project.frameSpeed) && (project.frameSpeed || 0) > 0 ? project.frameSpeed! : 1;
     const fps = 50;
     const ticksPerSecond = (bpm * ppq) / 60;
     const ticksPerRow = Math.round((ticksPerSecond / fps) * framesPerRow);
@@ -274,7 +287,7 @@ export const generateMidiFromProject = (project: TrackerProject, options: MidiEx
             trackBytes.push((usPerQuarter >> 16) & 0xFF, (usPerQuarter >> 8) & 0xFF, usPerQuarter & 0xFF);
         }
 
-        const orderList = project.subtunes[0].orderList;
+        const orderList = project.subtunes[0]?.orderList || [];
         for (const patId of orderList) {
             const pattern = project.patterns.find(p => p.id === patId);
             if (!pattern) {
@@ -325,6 +338,14 @@ export const generateMidiFromProject = (project: TrackerProject, options: MidiEx
         tracks.push(trackBytes);
     }
 
+    if (tracks.length === 0) {
+        const tempoTrack: number[] = [];
+        writeVLQ(0, tempoTrack); tempoTrack.push(0xFF, 0x51, 0x03);
+        const usPerQuarter = Math.round(60000000 / bpm);
+        tempoTrack.push((usPerQuarter >> 16) & 0xFF, (usPerQuarter >> 8) & 0xFF, usPerQuarter & 0xFF);
+        writeVLQ(0, tempoTrack); tempoTrack.push(0xFF, 0x2F, 0x00);
+        tracks.push(tempoTrack);
+    }
     return buildMidiFile(tracks, ppq);
 };
 

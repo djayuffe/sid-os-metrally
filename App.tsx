@@ -4,7 +4,8 @@ import { Activity, Cpu, Layout, Piano, Monitor, Database, Settings, Sliders, Har
 import { parseTraceFile, SidPlayer, CLOCK_PAL, midiNoteToFreq } from './services/sidService';
 import { traceToTrackerProject } from './services/trackerService';
 import { exportTraceToJson, exportProjectToJson } from './services/jsonExportService';
-import { generateMidiFile } from './services/midiExportService';
+import { generateMidiFile, generateMidiFromProject } from './services/midiExportService';
+import { audioBufferToWav } from './services/audioExportService';
 import { generateSwmFile } from './services/swmExportService';
 import { ParsedTrace, TrackerProject, EditorCursor, MasteringParams, TrackerInstrument, VWindow as VWindowType, VirtualFile, MixerParams } from './types';
 import { updateOrderList, insertSequenceStep, deleteSequenceStep, setSequenceLoopPoint, transposePattern, clearPattern, updateProjectInstrument, createNewInstrument, deleteProjectInstrument, updatePatternCell, updatePatternCellHex } from './services/editorService';
@@ -91,6 +92,7 @@ const App: React.FC = () => {
   const [voiceMask, setVoiceMask] = useState<[boolean, boolean, boolean]>([true, true, true]);
   const [luminosity, setLuminosity] = useState(1.2);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [fpsOverride, setFpsOverride] = useState<number | null>(null);
   const [selectedInstId, setSelectedInstId] = useState(1);
   const [cursor, setCursor] = useState<EditorCursor>({ patternIdx: 0, row: 0, channel: 0, column: 0 });
   const [vFiles, setVFiles] = useState<VirtualFile[]>([]);
@@ -144,9 +146,28 @@ const App: React.FC = () => {
       return () => { playerRef.current?.destroy(); playerRef.current = null; clearInterval(statusPoll); };
   }, []);
 
+  useEffect(() => { playerRef.current?.setSpeed(playbackSpeed); }, [playbackSpeed]);
+  useEffect(() => {
+      const player = playerRef.current;
+      if (player) player.gainNode.gain.setTargetAtTime(volume, player.ctx.currentTime, 0.05);
+  }, [volume]);
+  useEffect(() => { playerRef.current?.setModel(sidModel); }, [sidModel]);
+  useEffect(() => { playerRef.current?.setVoiceMask(voiceMask); }, [voiceMask]);
+  useEffect(() => { playerRef.current?.setMasteringParams(masteringParams); }, [masteringParams]);
+  useEffect(() => { playerRef.current?.setMixerParams(mixerParams); }, [mixerParams]);
+  useEffect(() => {
+      if (traceData && playerRef.current) playerRef.current.setData(traceData.events, clockFreq);
+  }, [clockFreq]);
+  useEffect(() => {
+      setTraceData(previous => previous ? { ...previous, header: { ...previous.header, fps: fpsOverride || undefined } } : previous);
+  }, [fpsOverride]);
+
   const focusWindow = (id: string) => {
-      setActiveZ(z => z + 1);
-      setWindows(prev => ({ ...prev, [id]: { ...prev[id], zIndex: activeZ + 1, isOpen: true, isMinimized: false } }));
+      setWindows(prev => {
+          const nextZ = Math.max(activeZ, ...(Object.values(prev) as VWindowType[]).map(window => window.zIndex)) + 1;
+          setActiveZ(nextZ);
+          return { ...prev, [id]: { ...prev[id], zIndex: nextZ, isOpen: true, isMinimized: false } };
+      });
   };
 
   const toggleMaximize = (id: string) => {
@@ -190,13 +211,60 @@ const App: React.FC = () => {
       if (parsed && parsed.events && parsed.events.length > 0) {
         setTraceData(parsed);
         if (playerRef.current) {
-          playerRef.current.setData(parsed.events, parsed.header.clock || CLOCK_PAL);
+          playerRef.current.setData(parsed.events, clockFreq);
         }
         const proj = traceToTrackerProject(parsed);
         setTrackerProject(proj);
       }
     };
     reader.readAsText(file);
+  };
+
+  const downloadBytes = (bytes: Uint8Array | Blob, filename: string, type?: string) => {
+    const url = URL.createObjectURL(bytes instanceof Blob ? bytes : new Blob([bytes], { type: type || 'application/octet-stream' }));
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = filename; anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const exportWav = async () => {
+      if (!traceData || !traceData.events.length) return;
+      const clock = clockFreq || CLOCK_PAL;
+      const lastCycle = traceData.events[traceData.events.length - 1]?.cycles ?? 0;
+      const durationSeconds = Math.min(300, Math.max(1, lastCycle / clock + 1));
+      const AudioOffline = window.OfflineAudioContext || (window as typeof window & { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+      if (!AudioOffline) { alert('This browser does not provide offline audio rendering.'); return; }
+      try {
+          const offline = new AudioOffline(2, Math.ceil(durationSeconds * 44100), 44100);
+          const renderer = new SidPlayer(offline);
+          await renderer.init();
+          renderer.setData(traceData.events, clock);
+          renderer.setModel(sidModel); renderer.setSpeed(playbackSpeed); renderer.setVoiceMask(voiceMask);
+          renderer.setMasteringParams(masteringParams); renderer.setMixerParams(mixerParams);
+          renderer.gainNode.gain.value = volume;
+          await renderer.play();
+          const buffer = await offline.startRendering();
+          renderer.destroy();
+          downloadBytes(audioBufferToWav(buffer), 'sid-trace.wav', 'audio/wav');
+      } catch (error) {
+          console.error('Unable to render WAV export', error);
+          alert('WAV rendering failed. Check browser audio support and try again.');
+      }
+  };
+
+  const testInstrument = (instrument: TrackerInstrument, note = 60) => {
+      const player = playerRef.current;
+      if (!player || !isAudioEnabled) return;
+      const freq = midiNoteToFreq(note, clockFreq);
+      const base = 0;
+      player.liveWrite(base, freq & 0xff);
+      player.liveWrite(base + 1, (freq >> 8) & 0xff);
+      player.liveWrite(base + 2, instrument.pulseWidth & 0xff);
+      player.liveWrite(base + 3, (instrument.pulseWidth >> 8) & 0x0f);
+      player.liveWrite(base + 5, ((instrument.attack & 0xf) << 4) | (instrument.decay & 0xf));
+      player.liveWrite(base + 6, ((instrument.sustain & 0xf) << 4) | (instrument.release & 0xf));
+      player.liveWrite(base + 4, (instrument.waveform & 0xf0) | 0x01);
+      window.setTimeout(() => player.liveWrite(base + 4, instrument.waveform & 0xf0), 350);
   };
 
   return (
@@ -225,7 +293,8 @@ const App: React.FC = () => {
       <ProtrackerMenu
         onLoad={() => focusWindow('sd')}
         onExportProject={() => exportProjectToJson(trackerProject)} onExportMidi={() => setShowMidiModal(true)} onExportSwm={() => trackerProject && generateSwmFile(trackerProject)}
-        onHelp={() => setShowHelpModal(false)} onSettings={() => setShowSettingsModal(true)} onOpenMixer={() => focusWindow('mixer')} onPatternTools={() => setShowPatternTools(true)}
+        onHelp={() => setShowHelpModal(true)} onSettings={() => setShowSettingsModal(true)} onOpenMixer={() => focusWindow('mixer')} onPatternTools={() => setShowPatternTools(true)}
+        onShutdown={() => { playerRef.current?.pause(); playerRef.current?.destroy(); playerRef.current = null; setIsPlayingState(false); setIsAudioEnabled(false); }}
         viewMode="PRO_STATION" setViewMode={() => {}} vizMode={vizMode} setVizMode={setVizMode as any} crtEnabled={crtEnabled} setCrtEnabled={setCrtEnabled}
         clockFreq={clockFreq} setClockFreq={setClockFreq} lfoConfig={{enabled: false, sync: false, rate: 1, depth: 0, waveform: 'sawtooth', target: 'none'}} setLfoConfig={()=>{}}
         traceLoaded={!!traceData} isPlaying={isPlayingState} onTogglePlay={async () => {
@@ -236,7 +305,7 @@ const App: React.FC = () => {
         onStop={() => { if(isAudioEnabled) { playerRef.current?.pause(); playerRef.current?.seek(0); } }}
         playbackSpeed={playbackSpeed} setPlaybackSpeed={setPlaybackSpeed} volume={volume} setVolume={setVolume} editorStep={1} setEditorStep={()=>{}}
         isFullscreen={false} onToggleFullscreen={() => {}} hqEnabled={true} setHqEnabled={()=>{}} onExportJson={() => exportTraceToJson(traceData)}
-        onExportWav={() => alert("WAV RENDER STARTING...")}
+        onExportWav={exportWav}
       />
 
       <div className="flex-1 relative overflow-hidden">
@@ -275,10 +344,10 @@ const App: React.FC = () => {
                     const parsed = parseTraceFile(file.data as string);
                     if (parsed && parsed.events) {
                         setTraceData(parsed);
-                        if (playerRef.current) playerRef.current.setData(parsed.events, parsed.header.clock || CLOCK_PAL);
+                        if (playerRef.current) playerRef.current.setData(parsed.events, clockFreq);
                     }
                   }} onDelete={(id) => setVFiles(prev => prev.filter(f => f.id !== id))} onUpload={onFileUpload} />; break;
-                  case 'inst': icon = <Piano className="w-2.5 h-2.5"/>; content = trackerProject ? ( <ProtrackerInstEditor instruments={trackerProject.instruments} selectedId={selectedInstId} onSelect={setSelectedInstId} onUpdate={(id, changes) => setTrackerProject(updateProjectInstrument(trackerProject, id, changes))} onTest={()=>{}} onCreate={() => setTrackerProject(createNewInstrument(trackerProject))} onDelete={(id) => setTrackerProject(deleteProjectInstrument(trackerProject, id))} /> ) : <div className="h-full flex items-center justify-center text-[7px] text-slate-700 uppercase">SYNTH_IDLE</div>; break;
+                  case 'inst': icon = <Piano className="w-2.5 h-2.5"/>; content = trackerProject ? ( <ProtrackerInstEditor instruments={trackerProject.instruments} selectedId={selectedInstId} onSelect={setSelectedInstId} onUpdate={(id, changes) => setTrackerProject(updateProjectInstrument(trackerProject, id, changes))} onTest={testInstrument} onCreate={() => setTrackerProject(createNewInstrument(trackerProject))} onDelete={(id) => setTrackerProject(deleteProjectInstrument(trackerProject, id))} /> ) : <div className="h-full flex items-center justify-center text-[7px] text-slate-700 uppercase">SYNTH_IDLE</div>; break;
                   case 'mixer': icon = <Sliders className="w-2.5 h-2.5"/>; content = <MixerConsole player={playerRef.current} params={masteringParams} onUpdate={setMasteringParams} mixerParams={mixerParams} onUpdateMixer={setMixerParams} onClose={() => setWindows(p => ({ ...p, mixer: { ...p.mixer, isOpen: false } }))} />; break;
               }
               return (
@@ -313,8 +382,8 @@ const App: React.FC = () => {
       </div>
 
       {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
-      {showMidiModal && traceData && <Modal title="MIDI_PIPE" onClose={() => setShowMidiModal(false)}><MidiExportEditor initialBpm={120} initialPpq={480} initialDuration="smart" onExport={(bpm, ppq, dur, proj, chans) => { const blob = generateMidiFile(traceData, { bpm, ppq, duration: dur, channels: chans }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([blob], { type: 'audio/midi' })); a.download = 'export.mid'; a.click(); setShowMidiModal(false); }} onClose={() => setShowMidiModal(false)} /></Modal>}
-      {showSettingsModal && <Modal title="SYS_CFG" onClose={() => setShowSettingsModal(false)}><SettingsModal onClose={() => setShowSettingsModal(false)} crtEnabled={crtEnabled} setCrtEnabled={setCrtEnabled} clockFreq={clockFreq} setClockFreq={setClockFreq} luminosity={luminosity} setLuminosity={setLuminosity} sidModel={sidModel} setSidModel={setSidModel} showHex={showHex} setShowHex={setShowHex} fpsOverride={null} setFpsOverride={()=>{}} /></Modal>}
+      {showMidiModal && traceData && <Modal title="MIDI_PIPE" onClose={() => setShowMidiModal(false)}><MidiExportEditor initialBpm={120} initialPpq={480} initialDuration="smart" onExport={(bpm, ppq, dur, proj, chans) => { const bytes = proj && trackerProject ? generateMidiFromProject(trackerProject, { bpm, ppq, duration: dur, channels: chans }) : generateMidiFile(traceData, { bpm, ppq, duration: dur, channels: chans }); downloadBytes(bytes, 'export.mid', 'audio/midi'); setShowMidiModal(false); }} onClose={() => setShowMidiModal(false)} /></Modal>}
+      {showSettingsModal && <Modal title="SYS_CFG" onClose={() => setShowSettingsModal(false)}><SettingsModal onClose={() => setShowSettingsModal(false)} crtEnabled={crtEnabled} setCrtEnabled={setCrtEnabled} clockFreq={clockFreq} setClockFreq={setClockFreq} luminosity={luminosity} setLuminosity={setLuminosity} sidModel={sidModel} setSidModel={setSidModel} showHex={showHex} setShowHex={setShowHex} fpsOverride={fpsOverride} setFpsOverride={setFpsOverride} /></Modal>}
       {showPatternTools && trackerProject && <Modal title="PAT_UTIL" onClose={() => setShowPatternTools(false)}><PatternToolsModal channel={cursor.channel} onTranspose={(s, w) => setTrackerProject(transposePattern(trackerProject, trackerProject.subtunes[0].orderList[cursor.patternIdx], cursor.channel, s, w))} onClear={(w) => setTrackerProject(clearPattern(trackerProject, trackerProject.subtunes[0].orderList[cursor.patternIdx], cursor.channel, w))} onClose={() => setShowPatternTools(false)} /></Modal>}
     </div>
   );

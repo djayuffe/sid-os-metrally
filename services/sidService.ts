@@ -300,7 +300,18 @@ class SidProcessor extends AudioWorkletProcessor {
       else if (type === 'PLAY') this.playing = !!payload;
       else if (type === 'LIVE') this.pendingWrites.push({ reg: payload.reg & 31, val: u8(payload.val), cy: this.cy + 1, _i: this.pendingWrites.length });
       else if (type === 'MASTER') this.mastering.updateParams(payload || {});
-      else if (type === 'MIXER') this.mixer = payload || this.mixer;
+      else if (type === 'MIXER') {
+        const source = payload && typeof payload === 'object' ? payload : {};
+        const defaults = [{volume:1, pan:0, muted:false, solo:false}, {volume:1, pan:0, muted:false, solo:false}, {volume:1, pan:0, muted:false, solo:false}];
+        const voices = Array.isArray(source.voices) ? source.voices.slice(0, 3).map((m, i) => ({
+          volume: Number.isFinite(m?.volume) ? m.volume : defaults[i].volume,
+          pan: Number.isFinite(m?.pan) ? m.pan : defaults[i].pan,
+          muted: !!m?.muted,
+          solo: !!m?.solo
+        })) : defaults;
+        while (voices.length < 3) voices.push(defaults[voices.length]);
+        this.mixer = { voices, masterVolume: Number.isFinite(source.masterVolume) ? source.masterVolume : 1 };
+      }
       else if (type === 'MODEL'){
         this.model = payload === '8580' ? '8580' : '6581';
         this.v.forEach(v=>v.model=this.model); this.filter.model=this.model; this.filter._cut=-1;
@@ -355,24 +366,32 @@ class SidProcessor extends AudioWorkletProcessor {
         const cutoff = (((this.regs[21] & 7) | (this.regs[22] << 3)) & 0x7FF);
         const route = this.regs[23], modeVol = this.regs[24];
         this.filter.updateParams(cutoff, (route >> 4) & 15, this.model);
-        let toFilter = 0, direct = 0;
+        let toFilter = 0, directL = 0, directR = 0;
+        const hasSolo = this.mixer.voices.some(m => m && m.solo);
         for (let v=0; v<3; v++){
           if (v === 2 && (modeVol & 0x80)) continue;
-          const mixV = this.mixer.voices[v];
-          const rawVal = (this.voiceMask[v] && !mixV.muted ? this.v[v].output : 0);
-          const val = rawVal * mixV.volume;
+          const mixV = this.mixer.voices[v] || { volume: 1, pan: 0, muted: false, solo: false };
+          const audible = this.voiceMask[v] && !mixV.muted && (!hasSolo || mixV.solo);
+          const rawVal = audible ? this.v[v].output : 0;
+          const val = rawVal * clampF(Number.isFinite(mixV.volume) ? mixV.volume : 1, 0, 2);
+          const pan = clampF(Number.isFinite(mixV.pan) ? mixV.pan : 0, -1, 1);
+          const panAngle = (pan + 1) * Math.PI / 4;
+          const panL = Math.cos(panAngle), panR = Math.sin(panAngle);
 
           this.voicePeaks[v] = Math.max(this.voicePeaks[v], Math.abs(val));
           this.voiceRms[v] = this.voiceRms[v] * 0.999 + (val * val) * 0.001;
 
-          if (route & (1 << v)) toFilter += val; else direct += val;
+          if (route & (1 << v)) toFilter += val;
+          else { directL += val * panL; directR += val * panR; }
         }
-        const subMono = (this.filter.step(toFilter, (modeVol >> 4) & 7) + direct) * (modeVol & 15) / 15;
-        sampleSumL += subMono;
-        sampleSumR += subMono;
+        const filtered = this.filter.step(toFilter, (modeVol >> 4) & 7);
+        const subGain = (modeVol & 15) / 15;
+        sampleSumL += (filtered * 0.707 + directL) * subGain;
+        sampleSumR += (filtered * 0.707 + directR) * subGain;
       }
-      const mixedL = clampF((sampleSumL / 8) * this.mixer.masterVolume, -1.5, 1.5);
-      const mixedR = clampF((sampleSumR / 8) * this.mixer.masterVolume, -1.5, 1.5);
+      const masterVolume = clampF(Number.isFinite(this.mixer.masterVolume) ? this.mixer.masterVolume : 1, 0, 2);
+      const mixedL = clampF((sampleSumL / 8) * masterVolume, -1.5, 1.5);
+      const mixedR = clampF((sampleSumR / 8) * masterVolume, -1.5, 1.5);
       const stereo = this.mastering.process(mixedL, mixedR);
 
       outL[i] = stereo[0]; if (outR) outR[i] = stereo[1];
@@ -438,15 +457,18 @@ export class SidPlayer {
   }
 
   setData(ev: SidEvent[], clk: number) {
-    this.clock = clk || CLOCK_PAL;
-    const sorted = [...ev].sort((a,b)=>a.cycles-b.cycles);
-    this.trace = { header: { clock: clk }, frames: [], events: sorted };
-    this.node?.port.postMessage({ type: 'DATA', payload: { events: sorted, clock: clk } });
+    this.clock = Number.isFinite(clk) && clk > 0 ? clk : CLOCK_PAL;
+    const sorted = (Array.isArray(ev) ? ev : [])
+      .filter(e => e && Number.isFinite(e.cycles) && e.cycles >= 0 && Number.isInteger(e.reg) && e.reg >= 0 && e.reg < 32)
+      .map(e => ({ cycles: Math.floor(e.cycles), reg: e.reg & 0x1f, val: u8(e.val) }))
+      .sort((a,b)=>a.cycles-b.cycles);
+    this.trace = { header: { clock: this.clock }, frames: [], events: sorted };
+    this.node?.port.postMessage({ type: 'DATA', payload: { events: sorted, clock: this.clock } });
   }
   async play() { if (this.ctx instanceof AudioContext && this.ctx.state === 'suspended') await this.ctx.resume(); this.isPlaying = true; this.node?.port.postMessage({ type: 'PLAY', payload: true }); }
   pause() { this.isPlaying = false; this.node?.port.postMessage({ type: 'PLAY', payload: false }); }
-  seek(c: number) { this.volatileCycles = c; this.node?.port.postMessage({ type: 'SEEK', payload: c|0 }); }
-  setSpeed(s: number) { this.node?.port.postMessage({ type: 'SPEED', payload: s }); }
+  seek(c: number) { const next = Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0; this.volatileCycles = next; this.node?.port.postMessage({ type: 'SEEK', payload: next }); }
+  setSpeed(s: number) { const next = Number.isFinite(s) && s > 0 ? Math.min(8, Math.max(0.05, s)) : 1; this.node?.port.postMessage({ type: 'SPEED', payload: next }); }
   setModel(m: '6581' | '8580') { this.node?.port.postMessage({ type: 'MODEL', payload: m }); }
   liveWrite(reg: number, val: number) { this.node?.port.postMessage({ type: 'LIVE', payload: { reg, val } }); }
   setMasteringParams(p: MasteringParams) { this.node?.port.postMessage({ type: 'MASTER', payload: p }); }
@@ -462,28 +484,34 @@ export class SidPlayer {
 }
 
 export const parseTraceFile = (text: string): ParsedTrace => {
-  const events: SidEvent[] = []; const lines = text.split(/\r?\n/);
+  const events: SidEvent[] = []; let detectedClock = CLOCK_PAL; const lines = text.split(/\r?\n/);
   lines.forEach(l => {
     const p = l.split('|').map(s => s.trim());
     if (p.length >= 3) {
-      const c = parseInt(p[0]), r = parseInt(p[1], 16) & 0x1F, v = parseInt(p[2], 16);
-      if (!isNaN(c)) events.push({ cycles: c, reg: r, val: u8(v) });
+      const c = Number(p[0]), rawReg = Number.parseInt(p[1], 16), rawVal = Number.parseInt(p[2], 16);
+      if (Number.isFinite(c) && c >= 0 && Number.isInteger(rawReg) && rawReg >= 0 && rawReg < 32 && Number.isFinite(rawVal)) {
+        events.push({ cycles: Math.floor(c), reg: rawReg, val: u8(rawVal) });
+      }
     }
   });
   if (events.length === 0) {
     try {
       const json = JSON.parse(text);
+      const header = json && typeof json === 'object' && !Array.isArray(json) ? json.header : undefined;
+      const candidateClock = Number(header?.clock ?? json?.clock);
+      if (Number.isFinite(candidateClock) && candidateClock > 0) detectedClock = candidateClock;
       const raw = Array.isArray(json) ? json : (json.events || json.writeLog || []);
       raw.forEach((e: any) => {
         const r = parseInt(e.reg ?? (e.addr !== undefined ? e.addr & 0x1F : -1));
         const cycles = Number(e.cycles ?? e.cycle ?? 0);
-        if (r >= 0 && r < 32 && Number.isFinite(cycles) && cycles >= 0) events.push({ cycles, reg: r, val: u8(e.val ?? e.value ?? 0) });
+        const value = Number(e.val ?? e.value ?? 0);
+        if (Number.isInteger(r) && r >= 0 && r < 32 && Number.isFinite(cycles) && cycles >= 0 && Number.isFinite(value)) events.push({ cycles: Math.floor(cycles), reg: r, val: u8(value) });
       });
     } catch {}
   }
-  const sorted = events.sort((a,b)=>a.cycles-b.cycles); const clock = CLOCK_PAL; const frames: any[] = [];
+  const sorted = events.sort((a,b)=>a.cycles-b.cycles); const clock = detectedClock; const frames: any[] = [];
   if (sorted.length > 0) {
-    const cpf = clock/50; const total = Math.ceil(sorted[sorted.length-1].cycles/cpf);
+    const cpf = clock/50; const total = Math.max(1, Math.floor(sorted[sorted.length-1].cycles/cpf) + 1);
     const cur = new Uint8Array(32); let ei = 0;
     for (let f=0; f<total; f++){
       while (ei < sorted.length && sorted[ei].cycles <= f*cpf){ cur[sorted[ei].reg] = sorted[ei].val; ei++; }

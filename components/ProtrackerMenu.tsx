@@ -18,6 +18,7 @@ interface ProtrackerMenuProps {
   onHelp: () => void;
   onSettings: () => void;
   onPatternTools: () => void;
+  onShutdown: () => void;
   onOpenMixer: () => void;
   viewMode: string;
   setViewMode: (m: 'TRACKER' | 'INSTRUMENTS' | 'MEM') => void;
@@ -121,6 +122,10 @@ const ProtrackerMenu: React.FC<ProtrackerMenuProps> = (props) => {
                     <PtButton label="" icon={<Square className="w-2.5 h-2.5 fill-current"/>} onClick={props.onStop} disabled={!props.traceLoaded} />
                     <PtButton label={props.isPlaying ? "PAUSE" : "PLAY"} active={props.isPlaying} icon={props.isPlaying ? <Pause className="w-2.5 h-2.5 fill-current"/> : <Play className="w-2.5 h-2.5 fill-current"/>} onClick={props.onTogglePlay} disabled={!props.traceLoaded} />
                     <PtButton label="WAV" icon={<Disc className="w-2.5 h-2.5 text-red-800 fill-current"/>} onClick={props.onExportWav} disabled={!props.traceLoaded} />
+                    <PtButton label="SPD" sub={`${props.playbackSpeed.toFixed(2)}x`} onClick={() => {
+                        const next = props.playbackSpeed >= 2 ? 0.5 : Math.min(2, props.playbackSpeed + 0.5);
+                        props.setPlaybackSpeed(next);
+                    }} />
                 </PtGroup>
 
                 <div className="flex-1"></div>
@@ -142,7 +147,8 @@ const ProtrackerMenu: React.FC<ProtrackerMenuProps> = (props) => {
                         )}
                     </div>
                     <PtButton label="CFG" icon={<Settings className="w-2.5 h-2.5"/>} onClick={props.onSettings} />
-                    <button className="h-8 w-8 flex items-center justify-center bg-red-950/20 border border-red-900/30 rounded text-red-800 hover:text-red-500 transition-colors" title="Shut Down"><Power className="w-3.5 h-3.5"/></button>
+                    <PtButton label="HELP" icon={<HelpCircle className="w-2.5 h-2.5"/>} onClick={props.onHelp} />
+                    <button onClick={props.onShutdown} className="h-8 w-8 flex items-center justify-center bg-red-950/20 border border-red-900/30 rounded text-red-800 hover:text-red-500 transition-colors" title="Shut Down" aria-label="Shut down audio bus"><Power className="w-3.5 h-3.5"/></button>
                 </PtGroup>
             </div>
         </div>
