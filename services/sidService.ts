@@ -451,6 +451,7 @@ export class SidPlayer {
   }
 
   async init() {
+    if (this.node) return;
     const blob = new Blob([generateWorkletCode()], { type: 'application/javascript' });
     const url = URL.createObjectURL(blob);
     await this.ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
@@ -469,13 +470,18 @@ export class SidPlayer {
     };
   }
 
-  setData(ev: SidEvent[], clk: number) {
+  setData(ev: SidEvent[], clk?: number) {
     this.clock = normalizeClock(clk, CLOCK_PAL);
     const sorted = stableSortEvents(ev || []);
     this.trace = { header: { clock: this.clock }, frames: [], events: sorted };
     this.node?.port.postMessage({ type: 'DATA', payload: { events: sorted, clock: this.clock } });
   }
-  async play() { if (this.ctx instanceof AudioContext && this.ctx.state === 'suspended') await this.ctx.resume(); this.isPlaying = true; this.node?.port.postMessage({ type: 'PLAY', payload: true }); }
+  async play() {
+    const resumable = this.ctx as BaseAudioContext & { resume?: () => Promise<void> };
+    if (this.ctx.state === 'suspended' && typeof resumable.resume === 'function') await resumable.resume();
+    this.isPlaying = true;
+    this.node?.port.postMessage({ type: 'PLAY', payload: true });
+  }
   pause() { this.isPlaying = false; this.node?.port.postMessage({ type: 'PLAY', payload: false }); }
   seek(c: number) { const next = normalizeCycle(c); this.volatileCycles = next; this.node?.port.postMessage({ type: 'SEEK', payload: next }); }
   setSpeed(s: number) { this.node?.port.postMessage({ type: 'SPEED', payload: normalizeSpeed(s) }); }
@@ -487,10 +493,17 @@ export class SidPlayer {
 
   getEstimatedCycles(): number {
     if (!this.isPlaying) return this.volatileCycles;
-    const elapsed = performance.now() - (this.volatileLocalTimestamp || performance.now());
+    const nowMs = this.ctx.currentTime * 1000;
+    const elapsed = nowMs - (this.volatileLocalTimestamp || nowMs);
     return Math.floor(this.volatileCycles + (elapsed * this.clock / 1000));
   }
-  destroy() { this.node?.disconnect(); this.gainNode.disconnect(); if (this.ctx instanceof AudioContext) this.ctx.close(); }
+  destroy() {
+    this.isPlaying = false;
+    this.node?.port.postMessage({ type: 'PLAY', payload: false });
+    this.node?.disconnect(); this.node = null;
+    this.gainNode.disconnect();
+    if (this.ctx instanceof AudioContext) void this.ctx.close();
+  }
 }
 
 export const parseTraceFile = (text: string): ParsedTrace => {

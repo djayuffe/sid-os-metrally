@@ -10,7 +10,8 @@ export const audioBufferToWav = (buffer: AudioBuffer): Blob => {
   const data = new Float32Array(length);
   for (let i = 0; i < buffer.length; i++) {
     for (let ch = 0; ch < numChannels; ch++) {
-      data[i * numChannels + ch] = buffer.getChannelData(ch)[i];
+      const sample = buffer.getChannelData(ch)[i];
+      data[i * numChannels + ch] = Number.isFinite(sample) ? Math.max(-1, Math.min(1, sample)) : 0;
     }
   }
 
