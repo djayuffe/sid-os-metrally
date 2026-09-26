@@ -79,6 +79,20 @@ The loader accepts an event array or an object containing `events` or `writeLog`
 
 The player uses the selected SID clock for cycle advancement; trace writes are sorted stably by cycle. The visualizer and tracker conversion use the trace frame rate or the configured override.
 
+### SidStationPro integration
+
+SID OS incorporates the public boundary contracts from
+[sid-station-pro](https://github.com/djayuffe/sid-station-pro) in
+`services/sidStationProIntegration.ts`. The existing SID worklet remains the
+runtime engine so its telemetry and GUI stay compatible, while trace loading,
+full `$D400-$D41F` register addresses, stable event ordering, playback speed,
+and seek limits follow the SidStationPro contract. Seeks rebuild oscillator and
+envelope state deterministically instead of only jumping the register cursor.
+
+The integration is dependency-free and does not fetch code at runtime. Updates
+to the upstream contract can be reviewed against the pinned repository source
+before being adopted.
+
 ## Screenshots
 
 The repository includes release documentation images for the main feature groups:

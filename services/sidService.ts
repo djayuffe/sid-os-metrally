@@ -2,6 +2,15 @@
 /* eslint-disable no-inner-declarations */
 import { ParsedTrace, SidEvent, MasteringParams, MixerParams } from '../types';
 import { MASTERING_DSP_CODE } from './masteringDsp';
+import {
+  MAX_SEEK_CYCLES,
+  normalizeClock,
+  normalizeCycle,
+  normalizeSidReg,
+  normalizeSidVal,
+  normalizeSpeed,
+  stableSortEvents
+} from './sidStationProIntegration';
 
 /**
  * PERFECT TRACE REPLAY + ROBUST MATH
@@ -292,8 +301,8 @@ class SidProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (e)=>{
       const { type, payload } = e.data || {};
       if (type === 'DATA'){
-        this.ev = stableSortEvents((payload?.events || []).map((x,i)=>({ cycles: x.cycles|0, reg: x.reg & 31, val: u8(x.val), _i: i })));
-        this.clk = payload?.clock || 985248; this.ei = 0; this.cy = 0; this.nextCy = 0;
+        this.ev = stableSortEvents(payload?.events || []);
+        this.clk = Number.isFinite(payload?.clock) ? Math.max(1, payload.clock) : 985248; this.ei = 0; this.cy = 0; this.nextCy = 0;
         this.regs.fill(0); this.pendingWrites.length = 0;
         this.v.forEach(v=>v.reset()); this.filter.reset(); this.mastering.reset();
       }
@@ -316,13 +325,17 @@ class SidProcessor extends AudioWorkletProcessor {
         this.model = payload === '8580' ? '8580' : '6581';
         this.v.forEach(v=>v.model=this.model); this.filter.model=this.model; this.filter._cut=-1;
       }
-      else if (type === 'SPEED') this.speed = Number.isFinite(payload) && payload > 0 ? clampF(payload, 0.05, 8) : 1;
+      else if (type === 'SPEED') this.speed = Number.isFinite(payload) ? clampF(payload, 0.125, 16) : 1;
       else if (type === 'MASK' && Array.isArray(payload)) payload.forEach((m,i)=>this.voiceMask[i]=m?1:0);
       else if (type === 'SEEK'){
-        this.cy = payload|0; this.nextCy = payload|0;
-        this.ei = lowerBoundCycles(this.ev, this.cy);
+        const target = Math.floor(Number.isFinite(payload) ? clampF(payload, 0, ${MAX_SEEK_CYCLES}) : 0);
         this.regs.fill(0); this.pendingWrites.length = 0;
         this.v.forEach(v=>v.reset()); this.filter.reset(); this.mastering.reset();
+        this.ei = 0; this.cy = 0; this.nextCy = 0;
+        // Deterministically rebuild oscillator/envelope state, not just the
+        // register snapshot. This keeps seek output identical to linear play.
+        while (this.cy < target) { this.stepOneCycle(); this.cy++; }
+        this.nextCy = this.cy;
       }
     };
   }
@@ -457,20 +470,17 @@ export class SidPlayer {
   }
 
   setData(ev: SidEvent[], clk: number) {
-    this.clock = Number.isFinite(clk) && clk > 0 ? clk : CLOCK_PAL;
-    const sorted = (Array.isArray(ev) ? ev : [])
-      .filter(e => e && Number.isFinite(e.cycles) && e.cycles >= 0 && Number.isInteger(e.reg) && e.reg >= 0 && e.reg < 32)
-      .map(e => ({ cycles: Math.floor(e.cycles), reg: e.reg & 0x1f, val: u8(e.val) }))
-      .sort((a,b)=>a.cycles-b.cycles);
+    this.clock = normalizeClock(clk, CLOCK_PAL);
+    const sorted = stableSortEvents(ev || []);
     this.trace = { header: { clock: this.clock }, frames: [], events: sorted };
     this.node?.port.postMessage({ type: 'DATA', payload: { events: sorted, clock: this.clock } });
   }
   async play() { if (this.ctx instanceof AudioContext && this.ctx.state === 'suspended') await this.ctx.resume(); this.isPlaying = true; this.node?.port.postMessage({ type: 'PLAY', payload: true }); }
   pause() { this.isPlaying = false; this.node?.port.postMessage({ type: 'PLAY', payload: false }); }
-  seek(c: number) { const next = Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0; this.volatileCycles = next; this.node?.port.postMessage({ type: 'SEEK', payload: next }); }
-  setSpeed(s: number) { const next = Number.isFinite(s) && s > 0 ? Math.min(8, Math.max(0.05, s)) : 1; this.node?.port.postMessage({ type: 'SPEED', payload: next }); }
-  setModel(m: '6581' | '8580') { this.node?.port.postMessage({ type: 'MODEL', payload: m }); }
-  liveWrite(reg: number, val: number) { this.node?.port.postMessage({ type: 'LIVE', payload: { reg, val } }); }
+  seek(c: number) { const next = normalizeCycle(c); this.volatileCycles = next; this.node?.port.postMessage({ type: 'SEEK', payload: next }); }
+  setSpeed(s: number) { this.node?.port.postMessage({ type: 'SPEED', payload: normalizeSpeed(s) }); }
+  setModel(m: '6581' | '8580') { this.node?.port.postMessage({ type: 'MODEL', payload: m === '8580' ? '8580' : '6581' }); }
+  liveWrite(reg: number, val: number) { this.node?.port.postMessage({ type: 'LIVE', payload: { reg: normalizeSidReg(reg), val: normalizeSidVal(val) } }); }
   setMasteringParams(p: MasteringParams) { this.node?.port.postMessage({ type: 'MASTER', payload: p }); }
   setMixerParams(p: MixerParams) { this.node?.port.postMessage({ type: 'MIXER', payload: p }); }
   setVoiceMask(m: [boolean, boolean, boolean]) { this.node?.port.postMessage({ type: 'MASK', payload: m }); }
