@@ -13,6 +13,19 @@ SID OS is a client-only Vite application. There is no server component and no AP
 
 ## Feature boundaries
 
+## Public feature contracts
+
+| Contract | Input | Output/state | Safety behavior |
+| --- | --- | --- | --- |
+| Trace loader | Pipe text, JSON, JSONL | Stable `SidEvent[]` plus clock | Rejects invalid cycles and normalizes register/value bytes |
+| SID player | Events and PAL/NTSC clock | AudioWorklet stereo output and telemetry | Bounds speed, seek, model, mixer, and mastering values |
+| Project loader | Tracker JSON | Validated `TrackerProject` | Fills safe defaults and validates ADSR nibbles |
+| Editor | Existing project plus operation | New immutable project | Does not mutate React-owned source state |
+| Exporters | Trace, project, or rendered buffer | WAV, MIDI, SWM, JSON downloads | Validates format limits and reports export errors |
+
+These contracts are intentionally independent of the visual windows. A browser
+without WebGL can still load, play, edit, mix, diagnose, and export data.
+
 ### Transport and audio
 
 `App.tsx` owns the single `SidPlayer` instance. AudioContext creation is deferred until `SYSTEM_READY`; later state changes are sent to the worklet through control messages (`DATA`, `PLAY`, `SEEK`, `SPEED`, `MODEL`, `MASK`, `MASTER`, `MIXER`, and `LIVE`). The worklet advances SID cycles at the selected PAL/NTSC clock, applies register writes in stable order, and posts telemetry snapshots for the UI.
@@ -31,6 +44,15 @@ The tracker, sequence editor, pattern tools, instrument editor, mixer and visual
 - MIDI export emits a type-1 Standard MIDI File with tempo, voice tracks, pitch-bend and controller data; edited projects and raw traces use separate paths.
 - WAV export renders an offline `AudioBuffer` and writes a little-endian RIFF/WAVE container.
 - SWM export packs patterns, sequences, instruments, chord data and tempo tables into the `SWM1` layout.
+
+### Data ownership and lifecycle
+
+`App.tsx` owns the active trace, tracker project, audio player, window state,
+and export actions. Services are pure or lifecycle-scoped: parsers and editor
+operations return values, while `SidPlayer` owns the AudioWorklet connection.
+Unmounting pauses and disconnects the player, releases the gain node, and
+closes the audio context. Object URLs used by downloads are revoked after the
+browser has had time to begin the transfer.
 
 ## Audio lifecycle
 

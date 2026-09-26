@@ -18,6 +18,46 @@ SID OS — Metrally is a browser-based Commodore 64 SID workstation for inspecti
 
 See the visual feature gallery in [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
 
+## Feature guide
+
+### Trace laboratory
+
+Load register-write traces as pipe-delimited text, JSON, or JSONL. SID OS
+normalizes cycle timestamps, accepts register offsets or full SID addresses,
+preserves equal-cycle write order, and reconstructs frame snapshots for
+inspection. The transport supports pause, stop, seek, PAL/NTSC timing, SID
+model selection, and per-voice masks.
+
+### SID synthesis and telemetry
+
+The AudioWorklet engine models three SID voices with frequency and pulse-width
+registers, gate/ADSR behavior, triangle/saw/pulse/noise waveforms, oscillator
+sync, ring modulation, test-bit behavior, noise LFSR stepping, shared filter
+routing, and OSC3/ENV3 readback. Diagnostic windows expose register activity,
+transitions, voice state, peak/RMS levels, and hardware-style telemetry.
+
+### Tracker workstation
+
+Trace data can be rendered into editable tracker rows. The workflow supports
+patterns, sequence order, instruments, ADSR, waveform and pulse width,
+arpeggio and portamento commands, loops, funk tempo, chord tables, and tempo
+tables. Editing operations are immutable, so React state updates do not mutate
+the loaded project in place.
+
+### Visualization and diagnostics
+
+The workstation includes oscilloscope, vector/flux, SID die, NMOS logic,
+physical SID package, register audit, tracker, and instrument views. Three.js
+panels use an explicit WebGL fallback; audio, editing, import, diagnostics,
+and export remain available when WebGL is unavailable.
+
+### Mixer, mastering, and export
+
+Each voice has independent level, pan, mute, and solo controls. The mastering
+bus provides EQ, tape coloration, compression, exciter, reverb, chorus,
+stereo imaging, limiting, and output gain. Export supports WAV, type-1 MIDI,
+SID-Wizard `SWM1`, trace JSON, and editable project JSON.
+
 ## Quick start
 
 Requirements: Node.js 20+ and pnpm 11+.
@@ -44,6 +84,10 @@ Do not open `index.html` directly with `file://`. Browsers intentionally block t
 4. Open `KERN_SEQ` to edit tracker rows and sequence order. Use `SYNTH_MAP` for instruments and the virtual keyboard.
 5. Open `DSP_MIXER` for channel balance and mastering parameters.
 6. Export MIDI, WAV, SWM, JSON trace, or project JSON from the transport bar.
+
+For repeatable work, keep the original trace and exported project JSON
+together. The trace is the timing source record; the project JSON is the
+editable musical representation; WAV, MIDI, and SWM are delivery formats.
 
 ## Supported input formats
 
